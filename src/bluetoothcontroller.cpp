@@ -1,5 +1,62 @@
 #include "bluetoothcontroller.h"
 #include <QDebug>
+#include <QCoreApplication>
+
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QJniEnvironment>
+
+static bool androidHasPermissions()
+{
+    QJniEnvironment env;
+    QJniObject ctx = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity",
+        "()Landroid/app/Activity;");
+    if (!ctx.isValid()) return false;
+
+    const char *needed[] = {
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        nullptr
+    };
+
+    for (int i = 0; needed[i]; i++) {
+        QJniObject perm = QJniObject::fromString(QLatin1String(needed[i]));
+        jint r = ctx.callMethod<jint>("checkSelfPermission",
+                                       "(Ljava/lang/String;)I",
+                                       perm.object<jstring>());
+        if (r != 0) return false;  // 0 = PERMISSION_GRANTED
+    }
+    return true;
+}
+
+static void androidRequestPermissions()
+{
+    QJniEnvironment env;
+    QJniObject ctx = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative", "activity",
+        "()Landroid/app/Activity;");
+    if (!ctx.isValid()) return;
+
+    const char *needed[] = {
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+    };
+
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray arr = env->NewObjectArray(3, strCls, nullptr);
+    for (int i = 0; i < 3; i++) {
+        jstring s = env->NewStringUTF(needed[i]);
+        env->SetObjectArrayElement(arr, i, s);
+        env->DeleteLocalRef(s);
+    }
+    ctx.callMethod<void>("requestPermissions", "([Ljava/lang/String;I)V", arr, 1);
+    env->DeleteLocalRef(arr);
+    env->DeleteLocalRef(strCls);
+}
+#endif
 
 // Standard SPP UUID for HC-05/06
 static const QString SPP_UUID = QStringLiteral("00001101-0000-1000-8000-00805F9B34FB");
@@ -32,6 +89,14 @@ void BluetoothController::setStatus(const QString &msg)
 void BluetoothController::startDiscovery()
 {
     if (m_scanning) return;
+
+#ifdef Q_OS_ANDROID
+    if (!androidHasPermissions()) {
+        androidRequestPermissions();
+        setStatus(QStringLiteral("请授予蓝牙/位置权限后重新扫描"));
+        return;
+    }
+#endif
 
     if (!m_discoveryAgent) {
         m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);

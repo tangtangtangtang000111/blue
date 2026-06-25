@@ -3,16 +3,9 @@
 #include <QtMath>
 #include <algorithm>
 #include <cstring>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QQmlImageProviderBase>
-#endif
 
 HeatmapImageProvider::HeatmapImageProvider()
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     : QQuickImageProvider(QQuickImageProvider::Image)
-#else
-    : QQuickImageProvider(QQmlImageProviderBase::Image)
-#endif
 {
     std::memset(m_sourceMatrix, 0, sizeof(m_sourceMatrix));
     buildColormapLUT();
@@ -130,58 +123,101 @@ void HeatmapImageProvider::setOutputSize(int width, int height)
     }
 }
 
-// ---- Bilinear Interpolation Rendering ----
+// ---- Catmull-Rom cubic kernel ----
+
+// Mitchell-Netravali cubic filter (B=1/3, C=1/3).
+// All weights are non-negative → no overshoot/ringing, preserves temperature range.
+static float hmpCubicKernel(float x)
+{
+    // Mitchell-Netravali cubic filter (B=1/3, C=1/3).  All weights non-negative.
+    const float B = 1.0f / 3.0f;
+    const float C = 1.0f / 3.0f;
+    if (x < 0.0f) x = -x;
+    if (x < 1.0f) {
+        float v = ((12.0f - 9.0f*B - 6.0f*C) * x
+                 + (-18.0f + 12.0f*B + 6.0f*C)) * x * x
+                 + (6.0f - 2.0f*B);
+        return v / 6.0f;
+    } else if (x < 2.0f) {
+        float v = ((-B - 6.0f*C) * x
+                 + (6.0f*B + 30.0f*C)) * x * x
+                 + (-12.0f*B - 48.0f*C) * x
+                 + (8.0f*B + 24.0f*C);
+        return v / 6.0f;
+    }
+    return 0.0f;
+}
+
+static float hmpBicubicSample(const float *matrix, int cols, int rows,
+                              float srcX, float srcY)
+{
+    int xBase = (int)srcX;
+    int yBase = (int)srcY;
+    float fx = srcX - xBase;
+    float fy = srcY - yBase;
+
+    float cw[4], rw[4];
+    cw[0] = hmpCubicKernel(-1.0f - fx);
+    cw[1] = hmpCubicKernel(      - fx);
+    cw[2] = hmpCubicKernel( 1.0f - fx);
+    cw[3] = hmpCubicKernel( 2.0f - fx);
+    rw[0] = hmpCubicKernel(-1.0f - fy);
+    rw[1] = hmpCubicKernel(      - fy);
+    rw[2] = hmpCubicKernel( 1.0f - fy);
+    rw[3] = hmpCubicKernel( 2.0f - fy);
+
+    float sum = 0.0f;
+    for (int dy = -1; dy <= 2; ++dy) {
+        int y = yBase + dy;
+        if (y < 0) y = 0; else if (y >= rows) y = rows - 1;
+        float rowSum = 0.0f;
+        for (int dx = -1; dx <= 2; ++dx) {
+            int x = xBase + dx;
+            if (x < 0) x = 0; else if (x >= cols) x = cols - 1;
+            rowSum += matrix[y * cols + x] * cw[dx + 1];
+        }
+        sum += rowSum * rw[dy + 1];
+    }
+    return sum;
+}
+
+// ---- Bicubic Interpolation Rendering (with horizontal mirror) ----
 
 void HeatmapImageProvider::renderHeatmap()
 {
     QMutexLocker locker(&m_mutex);
 
-    if (m_outputImage.width() != m_outputWidth || m_outputImage.height() != m_outputHeight) {
-        m_outputImage = QImage(m_outputWidth, m_outputHeight, QImage::Format_ARGB32);
+    const int outW = m_outputWidth;
+    const int outH = m_outputHeight;
+
+    if (m_outputImage.width() != outW || m_outputImage.height() != outH) {
+        m_outputImage = QImage(outW, outH, QImage::Format_ARGB32);
     }
 
-    // Scale factors: map output pixel center to source coordinate
-    // output pixel (x_out, y_out) maps to source coordinate (x_src, y_src)
-    float scaleX = static_cast<float>(SRC_COLS - 1) / (m_outputWidth - 1);
-    float scaleY = static_cast<float>(SRC_ROWS - 1) / (m_outputHeight - 1);
+    const float scaleX = (float)(SRC_COLS - 1) / (outW - 1);
+    const float scaleY = (float)(SRC_ROWS - 1) / (outH - 1);
+    const float invRange = 1.0f / (m_currentMax - m_currentMin);
 
-    float invRange = 1.0f / (m_currentMax - m_currentMin);
-
-    for (int y = 0; y < m_outputHeight; ++y) {
-        // Source Y coordinate (floating point)
+    for (int y = 0; y < outH; ++y) {
+        QRgb *scanLine = (QRgb *)m_outputImage.scanLine(y);
         float srcY = y * scaleY;
-        int y0 = static_cast<int>(srcY);
-        int y1 = std::min(y0 + 1, SRC_ROWS - 1);
-        float fy = srcY - y0; // fractional part
 
-        QRgb *scanLine = reinterpret_cast<QRgb *>(m_outputImage.scanLine(y));
+        for (int x = 0; x < outW; ++x) {
+            // Source coordinates with horizontal mirror (flip left-right)
+            float srcX = (SRC_COLS - 1) - (x * scaleX);
 
-        for (int x = 0; x < m_outputWidth; ++x) {
-            // Source X coordinate (floating point)
-            float srcX = x * scaleX;
-            int x0 = static_cast<int>(srcX);
-            int x1 = std::min(x0 + 1, SRC_COLS - 1);
-            float fx = srcX - x0; // fractional part
+            // Bicubic sample
+            float interpolated = hmpBicubicSample(m_sourceMatrix, SRC_COLS, SRC_ROWS,
+                                               srcX, srcY);
 
-            // Get 4 corner values from source matrix
-            float v00 = m_sourceMatrix[y0 * SRC_COLS + x0];
-            float v10 = m_sourceMatrix[y0 * SRC_COLS + x1];
-            float v01 = m_sourceMatrix[y1 * SRC_COLS + x0];
-            float v11 = m_sourceMatrix[y1 * SRC_COLS + x1];
-
-            // Bilinear interpolation
-            float vTop = v00 * (1.0f - fx) + v10 * fx;
-            float vBottom = v01 * (1.0f - fx) + v11 * fx;
-            float interpolated = vTop * (1.0f - fy) + vBottom * fy;
-
-            // Normalize to [0, 1] using auto-range
             float normalized = (interpolated - m_currentMin) * invRange;
-            normalized = std::clamp(normalized, 0.0f, 1.0f);
+            if (normalized < 0.0f) normalized = 0.0f;
+            if (normalized > 1.0f) normalized = 1.0f;
 
-            // Look up color from LUT
-            int lutIdx = static_cast<int>(normalized * (LUT_SIZE - 1));
-            lutIdx = std::clamp(lutIdx, 0, LUT_SIZE - 1);
-            scanLine[x] = m_colormapLUT[lutIdx];
+            int idx = (int)(normalized * (LUT_SIZE - 1));
+            if (idx < 0) idx = 0;
+            if (idx >= LUT_SIZE) idx = LUT_SIZE - 1;
+            scanLine[x] = m_colormapLUT[idx];
         }
     }
 

@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+# Host Qt rcc generates code referencing qt_resourceFeatureZstd which
+# doesn't exist when Android Qt was built without zstd support.
+set(CMAKE_AUTORCC_OPTIONS "--no-zstd")
+
 # Support both Qt5 and Qt6
 find_package(Qt6 QUIET COMPONENTS Core Quick QuickControls2 Bluetooth)
 if(Qt6_FOUND)
@@ -17,7 +21,7 @@ else()
     set(QT_LIBS Qt5::Core Qt5::Quick Qt5::QuickControls2 Qt5::Bluetooth)
 endif()
 
-add_executable(BluetoothCar
+qt_add_executable(BluetoothCar
     src/main.cpp
     src/bluetoothcontroller.cpp
     src/heatmapimageprovider.cpp
@@ -32,6 +36,6 @@ if(ANDROID)
     set_target_properties(BluetoothCar PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
         QT_ANDROID_MIN_SDK_VERSION 26
-        QT_ANDROID_TARGET_SDK_VERSION 33
+        QT_ANDROID_TARGET_SDK_VERSION 34
     )
 endif()

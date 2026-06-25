@@ -8,7 +8,13 @@
 #include <QVector>
 #include <QMutex>
 
+// Qt6: QQuickImageProvider already inherits QObject — don't add duplicate base
+// Qt5: QQuickImageProvider does NOT inherit QObject — need explicit QObject
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+class HeatmapImageProvider : public QQuickImageProvider
+#else
 class HeatmapImageProvider : public QObject, public QQuickImageProvider
+#endif
 {
     Q_OBJECT
 
