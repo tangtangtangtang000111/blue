@@ -1,7 +1,7 @@
 name: Build APK
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,27 +17,28 @@ jobs:
           distribution: 'temurin'
 
       - name: Install Qt 5.15.2 for Android
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '5.15.2'
-          target: 'android'
-          arch: 'android_arm64_v8a'
-          modules: 'qtconnectivity'
+        run: |
+          pip3 install aqtinstall
+          python3 -m aqt install-qt linux android 5.15.2 android_arm64_v8a -O $HOME/Qt
+          echo "QT_INSTALL_DIR=$HOME/Qt/5.15.2" >> $GITHUB_ENV
 
       - name: Setup Android SDK
         run: |
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          cd $HOME/android-sdk/cmdline-tools
+          SDKDIR=$HOME/android-sdk
+          mkdir -p $SDKDIR/cmdline-tools
+          cd $SDKDIR/cmdline-tools
           curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o tools.zip
           unzip -q tools.zip
-          mv cmdline-tools latest
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-31" "build-tools;31.0.0" "ndk;21.4.7075529" > /dev/null 2>&1
+          mkdir -p latest
+          mv cmdline-tools/* latest/ 2>/dev/null || true
+          yes | $SDKDIR/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $SDKDIR/cmdline-tools/latest/bin/sdkmanager "platforms;android-31" "build-tools;31.0.0" "ndk;21.4.7075529" > /dev/null 2>&1
+          echo "ANDROID_SDK_ROOT=$SDKDIR" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$SDKDIR/ndk/21.4.7075529" >> $GITHUB_ENV
 
-      - name: Build
+      - name: Build with CMake
         run: |
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/21.4.7075529
+          export CMAKE_PREFIX_PATH=$HOME/Qt/5.15.2/android_arm64_v8a
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DANDROID_ABI=arm64-v8a \
@@ -47,9 +48,9 @@ jobs:
 
       - name: Generate APK
         run: |
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/21.4.7075529
-          androiddeployqt \
+          export QT_ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
+          export QT_ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT
+          $HOME/Qt/5.15.2/android_arm64_v8a/bin/androiddeployqt \
             --input build/android-BluetoothCar-deployment-settings.json \
             --output build/android-build \
             --android-platform android-31 \
