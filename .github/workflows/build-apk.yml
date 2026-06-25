@@ -25,6 +25,17 @@ jobs:
           modules: 'qtconnectivity'
           setup-python: 'true'
 
+      - name: Debug Qt paths
+        run: |
+          echo "=== Qt env vars ==="
+          echo "Qt6_DIR=$Qt6_DIR"
+          echo "QT_ROOT_DIR=$QT_ROOT_DIR"
+          echo "QTDIR=$QTDIR"
+          echo "PATH=$PATH"
+          echo "=== Find Qt6 config ==="
+          find $HOME -name "Qt6Config.cmake" 2>/dev/null | head -5
+          find /opt -name "Qt6Config.cmake" 2>/dev/null | head -5
+
       - name: Setup Android SDK + NDK
         run: |
           SDKDIR=$HOME/android-sdk
@@ -42,6 +53,7 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$Qt6_DIR" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-33 \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
