@@ -10,17 +10,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK 11
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Qt 5.15.2 for Android
+      - name: Install Qt 6.5.3 for Android
         run: |
           pip3 install aqtinstall
-          python3 -m aqt install-qt linux android 5.15.2 android_arm64_v8a -O $HOME/Qt
-          echo "QT_INSTALL_DIR=$HOME/Qt/5.15.2" >> $GITHUB_ENV
+          python3 -m aqt install-qt linux android 6.5.3 android_arm64_v8a -O $HOME/Qt
+          echo "QT_DIR=$HOME/Qt/6.5.3/android_arm64_v8a" >> $GITHUB_ENV
 
       - name: Setup Android SDK
         run: |
@@ -29,32 +29,30 @@ jobs:
           mkdir -p $SDKDIR/cmdline-tools/latest
           cd $SDKDIR/cmdline-tools/latest
           unzip -q /tmp/tools.zip
-          # The zip creates a cmdline-tools/ subdir, move its contents up
           if [ -d cmdline-tools ]; then mv cmdline-tools/* . 2>/dev/null; rmdir cmdline-tools; fi
           yes | ./bin/sdkmanager --sdk_root=$SDKDIR --licenses > /dev/null 2>&1 || true
-          ./bin/sdkmanager --sdk_root=$SDKDIR "platforms;android-31" "build-tools;31.0.0" "ndk;21.4.7075529"
+          ./bin/sdkmanager --sdk_root=$SDKDIR "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
           echo "ANDROID_SDK_ROOT=$SDKDIR" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$SDKDIR/ndk/21.4.7075529" >> $GITHUB_ENV
-          ls -la $SDKDIR/ndk/21.4.7075529/
+          echo "ANDROID_NDK_ROOT=$SDKDIR/ndk/25.2.9519653" >> $GITHUB_ENV
 
       - name: Build with CMake
         run: |
-          export CMAKE_PREFIX_PATH=$HOME/Qt/5.15.2/android_arm64_v8a
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=$QT_DIR \
             -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-31 \
+            -DANDROID_PLATFORM=android-33 \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
           cmake --build build --parallel
 
       - name: Generate APK
         run: |
           export QT_ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
-          export QT_ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT
-          $HOME/Qt/5.15.2/android_arm64_v8a/bin/androiddeployqt \
+          export ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT
+          $QT_DIR/bin/androiddeployqt \
             --input build/android-BluetoothCar-deployment-settings.json \
             --output build/android-build \
-            --android-platform android-31 \
+            --android-platform android-33 \
             --gradle
 
       - name: Upload APK
