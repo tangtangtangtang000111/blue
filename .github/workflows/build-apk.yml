@@ -53,7 +53,7 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DQt6_DIR="$QT_ROOT_DIR/lib/cmake/Qt6" \
             -DQT_HOST_PATH="$HOME/Qt/6.5.3/gcc_64" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-33 \
