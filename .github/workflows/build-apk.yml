@@ -25,16 +25,17 @@ jobs:
       - name: Setup Android SDK
         run: |
           SDKDIR=$HOME/android-sdk
-          mkdir -p $SDKDIR/cmdline-tools
-          cd $SDKDIR/cmdline-tools
-          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o tools.zip
-          unzip -q tools.zip
-          mkdir -p latest
-          mv cmdline-tools/* latest/ 2>/dev/null || true
-          yes | $SDKDIR/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          $SDKDIR/cmdline-tools/latest/bin/sdkmanager "platforms;android-31" "build-tools;31.0.0" "ndk;21.4.7075529" > /dev/null 2>&1
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip
+          mkdir -p $SDKDIR/cmdline-tools/latest
+          cd $SDKDIR/cmdline-tools/latest
+          unzip -q /tmp/tools.zip
+          # The zip creates a cmdline-tools/ subdir, move its contents up
+          if [ -d cmdline-tools ]; then mv cmdline-tools/* . 2>/dev/null; rmdir cmdline-tools; fi
+          yes | ./bin/sdkmanager --sdk_root=$SDKDIR --licenses > /dev/null 2>&1 || true
+          ./bin/sdkmanager --sdk_root=$SDKDIR "platforms;android-31" "build-tools;31.0.0" "ndk;21.4.7075529"
           echo "ANDROID_SDK_ROOT=$SDKDIR" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$SDKDIR/ndk/21.4.7075529" >> $GITHUB_ENV
+          ls -la $SDKDIR/ndk/21.4.7075529/
 
       - name: Build with CMake
         run: |
