@@ -54,7 +54,7 @@ jobs:
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DQt6_DIR="$QT_ROOT_DIR/lib/cmake/Qt6" \
-            -DQT_HOST_PATH="$HOME/Qt/6.5.3/gcc_64" \
+            -DQT_HOST_PATH="${QT_ROOT_DIR%/*}/gcc_64" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-33 \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
@@ -62,7 +62,7 @@ jobs:
 
       - name: Generate APK
         run: |
-          export QT_HOST_PATH="$HOME/Qt/6.5.3/gcc_64"
+          export QT_HOST_PATH="${QT_ROOT_DIR%/*}/gcc_64"
           androiddeployqt \
             --input build/android-BluetoothCar-deployment-settings.json \
             --output build/android-build \
